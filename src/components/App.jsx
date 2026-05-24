@@ -181,9 +181,11 @@ function useRealtimeSync(onCandChange, onIvChange) {
 /* ═══════════════════════════════════════
    AI CALL — reads key from window global
    ═══════════════════════════════════════ */
-window.__ATS_API_KEY__ = window.__ATS_API_KEY__
-  || (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_DEFAULT_AI_KEY)
-  || "";
+if (typeof window !== "undefined") {
+  window.__ATS_API_KEY__ = window.__ATS_API_KEY__
+    || (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_DEFAULT_AI_KEY)
+    || "";
+}
 
 async function callAI(prompt, sys = "") {
   const body = { model: "claude-sonnet-4-20250514", max_tokens: 1000, messages: [{ role: "user", content: prompt }] };

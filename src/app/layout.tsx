@@ -1,10 +1,14 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 
 export const metadata: Metadata = {
   title: 'ATS Intelligence v3.0',
   description: 'Full Stack AI Recruitment Platform powered by Claude AI',
   keywords: ['ATS', 'Recruiting', 'HR Tech', 'AI', 'Applicant Tracking'],
-  viewport: 'width=device-width, initial-scale=1',
+}
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
