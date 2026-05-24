@@ -188,14 +188,13 @@ if (typeof window !== "undefined") {
 }
 
 async function callAI(prompt, sys = "") {
-  const body = { model: "claude-sonnet-4-20250514", max_tokens: 1000, messages: [{ role: "user", content: prompt }] };
-  if (sys) body.system = sys;
-  const headers = { "Content-Type": "application/json" };
-  if (window.__ATS_API_KEY__) headers["x-api-key"] = window.__ATS_API_KEY__;
-  const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers, body: JSON.stringify(body) });
+  const key = window.__ATS_API_KEY__ || (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_DEFAULT_AI_KEY) || "";
+  const body = { contents: [{ parts: [{ text: prompt }] }] };
+  if (sys) body.system_instruction = { parts: [{ text: sys }] };
+  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   const d = await r.json();
   if (d.error) throw new Error(d.error.message || "API error");
-  return d.content?.[0]?.text || "";
+  return d.candidates?.[0]?.content?.parts?.[0]?.text || "";
 }
 
 /* ═══════════════════════════
@@ -1240,7 +1239,7 @@ Role="${r}", Level="${level}", Type="${type}"`);
    AI CHAT
    ═══════════════════════════ */
 function AIChat({ cands, ivs, toast, T }) {
-  const [msgs,setMsgs]=useState([{r:"bot",c:"Hi! I'm your ATS AI Assistant powered by Claude Sonnet 4.\n\nI work right here — no API key needed inside Claude.ai, or add your key in Settings for standalone use. Ask me anything!",ts:new Date().toLocaleTimeString()}]);
+  const [msgs,setMsgs]=useState([{r:"bot",c:"Hi! I'm your ATS AI Assistant powered by Google Gemini 2.0 Flash.\n\nAdd your Gemini API key in Settings to get started. Ask me anything!",ts:new Date().toLocaleTimeString()}]);
   const [input,setInput]=useState(""), [loading,setLoading]=useState(false);
   const ref=useRef();
   useEffect(()=>{if(ref.current)ref.current.scrollTop=ref.current.scrollHeight;},[msgs]);
@@ -1252,16 +1251,19 @@ function AIChat({ cands, ivs, toast, T }) {
     try{
       const sys=`You are an expert ATS recruitment AI. Current pipeline: ${cands.length} candidates, ${ivs.length} interviews. Top clients: ${[...new Set(cands.slice(0,5).map(c=>c.client).filter(Boolean))].join(", ")||"none yet"}. Be concise, practical and helpful.`;
       const hist=msgs.slice(-8).map(m=>({role:m.r==="user"?"user":"assistant",content:m.c}));
-      const resp=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json",...(window.__ATS_API_KEY__?{"x-api-key":window.__ATS_API_KEY__}:{})},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,system:sys,messages:[...hist,{role:"user",content:m}]})});
+      const key=window.__ATS_API_KEY__||(typeof process!=="undefined"&&process.env?.NEXT_PUBLIC_DEFAULT_AI_KEY)||"";
+      const gbody={contents:[{role:"user",parts:hist.map(m=>({text:m.content}))},{role:"user",parts:[{text:m}]}]};
+      if(sys)gbody.system_instruction={parts:[{text:sys}]};
+      const resp=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(gbody)});
       const d=await resp.json();
-      setMsgs(p=>[...p,{r:"bot",c:d.content?.[0]?.text||"Sorry, try again.",ts:new Date().toLocaleTimeString()}]);
+      setMsgs(p=>[...p,{r:"bot",c:d.candidates?.[0]?.content?.parts?.[0]?.text||"Sorry, try again.",ts:new Date().toLocaleTimeString()}]);
     }catch{setMsgs(p=>[...p,{r:"bot",c:"Connection error. Please try again.",ts:new Date().toLocaleTimeString()}]);}
     setLoading(false);
   };
   return (
     <div className="page-in" style={{display:"flex",flexDirection:"column",height:"calc(100vh - 120px)"}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"1rem",flexWrap:"wrap",gap:".5rem"}}>
-        <h1 style={{fontFamily:"'Orbitron',sans-serif",fontSize:"1.35rem",fontWeight:700,color:T.t1,display:"flex",alignItems:"center",gap:".6rem"}}>💬 AI Assistant<span style={{padding:".18rem .65rem",borderRadius:20,fontSize:".62rem",fontWeight:700,backdropFilter:"blur(10px)",background:"rgba(99,102,241,.12)",border:"1px solid rgba(99,102,241,.28)",color:"#818CF8"}}>Claude Sonnet 4</span></h1>
+        <h1 style={{fontFamily:"'Orbitron',sans-serif",fontSize:"1.35rem",fontWeight:700,color:T.t1,display:"flex",alignItems:"center",gap:".6rem"}}>💬 AI Assistant<span style={{padding:".18rem .65rem",borderRadius:20,fontSize:".62rem",fontWeight:700,backdropFilter:"blur(10px)",background:"rgba(99,102,241,.12)",border:"1px solid rgba(99,102,241,.28)",color:"#818CF8"}}>Gemini 2.0 Flash</span></h1>
         <div style={{padding:".38rem .85rem",borderRadius:20,backdropFilter:"blur(12px)",background:"rgba(0,210,160,.08)",border:"1px solid rgba(0,210,160,.22)",fontSize:".74rem",color:"#00D2A0",fontWeight:700,display:"flex",alignItems:"center",gap:".4rem"}}>
           <span style={{width:6,height:6,borderRadius:"50%",background:"#00D2A0",animation:"pulse .8s ease-in-out infinite",display:"inline-block"}}/>
           {window.__ATS_API_KEY__?"Using your API key":"Free sandbox mode"}
@@ -1300,8 +1302,8 @@ function Settings({ cands, ivs, theme, setTheme, toast, T }) {
   const [testing,setTesting] = useState(false);
   const [testOk,setTestOk]   = useState(null);
 
-  const saveKey=()=>{const k=apiKey.trim();window.__ATS_API_KEY__=k;try{if(k)localStorage.setItem("ats_api_key",k);else localStorage.removeItem("ats_api_key");}catch{}setTestOk(null);toast(k?"API key saved ✓ — all AI features will use your key":"API key cleared — using built-in sandbox","ok");};
-  const testKey=async()=>{const k=apiKey.trim();if(!k){toast("Enter a key first","warn");return;}setTesting(true);setTestOk(null);try{const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":k},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:10,messages:[{role:"user",content:"Say OK"}]})});const d=await r.json();if(d.content?.[0]?.text){setTestOk(true);toast("✅ Key works — connected to Claude!","ok");}else{setTestOk(false);toast("Key rejected: "+(d.error?.message||"unknown"),"err");}}catch(e){setTestOk(false);toast("Connection error: "+e.message,"err");}setTesting(false);};
+  const saveKey=()=>{const k=apiKey.trim();window.__ATS_API_KEY__=k;try{if(k)localStorage.setItem("ats_api_key",k);else localStorage.removeItem("ats_api_key");}catch{}setTestOk(null);toast(k?"API key saved ✓ — all AI features will use your key":"API key cleared","ok");};
+  const testKey=async()=>{const k=apiKey.trim();if(!k){toast("Enter a key first","warn");return;}setTesting(true);setTestOk(null);try{const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${k}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({contents:[{parts:[{text:"Say OK"}]}]})});const d=await r.json();if(d.candidates?.[0]?.content?.parts?.[0]?.text){setTestOk(true);toast("✅ Key works — connected to Gemini!","ok");}else{setTestOk(false);toast("Key rejected: "+(d.error?.message||"unknown"),"err");}}catch(e){setTestOk(false);toast("Connection error: "+e.message,"err");}setTesting(false);};
   const expAll=()=>{const d={candidates:cands,interviews:ivs,exportedAt:new Date().toISOString(),version:"3.0"};const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify(d,null,2)],{type:"application/json"}));a.download=`ats-backup-${tod()}.json`;a.click();toast("Backup downloaded ✓","ok");};
   const expCSV=()=>{const h="Date,Name,Vendor,Client,Role,Location,Rate,Status,Email";const rows=cands.map(c=>[c.date,c.candidateName,c.vendorName,c.client,c.role,c.location,c.rate,c.status,c.email].map(v=>`"${(v||"").replace(/"/g,'""')}"`).join(",")).join("\n");const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([h+"\n"+rows],{type:"text/csv"}));a.download=`candidates-${tod()}.csv`;a.click();toast("CSV exported ✓","ok");};
   const clrAll=async()=>{if(!confirm("⚠️ Delete ALL data? This cannot be undone!"))return;if(supabase){try{await supabase.from('candidates').delete().neq('id',0);await supabase.from('interviews').delete().neq('id',0);}catch{}}try{localStorage.removeItem("ats_candidates");localStorage.removeItem("ats_interviews");}catch{}toast("All data cleared. Reload to see changes.","info");};
@@ -1316,22 +1318,22 @@ function Settings({ cands, ivs, theme, setTheme, toast, T }) {
         <div style={{paddingLeft:".85rem"}}>
           <div style={{display:"flex",alignItems:"center",gap:".6rem",flexWrap:"wrap",marginBottom:".6rem"}}>
             <span style={{fontFamily:"'Orbitron',sans-serif",fontSize:".82rem",fontWeight:700,color:T.t1}}>🔑 API Keys</span>
-            <span style={{padding:".12rem .55rem",borderRadius:20,fontSize:".62rem",fontWeight:700,backdropFilter:"blur(8px)",background:"rgba(99,102,241,.12)",border:"1px solid rgba(99,102,241,.28)",color:"#818CF8"}}>Anthropic Claude</span>
+            <span style={{padding:".12rem .55rem",borderRadius:20,fontSize:".62rem",fontWeight:700,backdropFilter:"blur(8px)",background:"rgba(99,102,241,.12)",border:"1px solid rgba(99,102,241,.28)",color:"#818CF8"}}>Google Gemini</span>
             {window.__ATS_API_KEY__?<span style={{padding:".12rem .55rem",borderRadius:20,fontSize:".62rem",fontWeight:700,backdropFilter:"blur(8px)",background:"rgba(0,210,160,.1)",border:"1px solid rgba(0,210,160,.28)",color:T.ok}}>● Active</span>:<span style={{padding:".12rem .55rem",borderRadius:20,fontSize:".62rem",fontWeight:700,backdropFilter:"blur(8px)",background:"rgba(255,200,0,.08)",border:"1px solid rgba(255,200,0,.25)",color:T.warn}}>Sandbox Mode</span>}
           </div>
           <p style={{color:T.t3,fontSize:".83rem",lineHeight:1.65,marginBottom:"1.2rem"}}>
-            Paste your Anthropic key to use your own AI quota. The key is saved to your browser and injected into all AI features — <strong style={{color:T.t2}}>AI Matcher, Interview Prep, Skill Radar, AI Chat</strong>.<br/>
-            <span style={{color:`rgba(${T.g2},.9)`,fontWeight:600}}>Without a key the app works inside Claude.ai using the built-in sandbox for free.</span>
+            Paste your Google Gemini API key to use AI features. The key is saved to your browser and injected into all AI features — <strong style={{color:T.t2}}>AI Matcher, Interview Prep, Skill Radar, AI Chat</strong>.<br/>
+            <span style={{color:`rgba(${T.g2},.9)`,fontWeight:600}}>Get a free API key from Google AI Studio (aistudio.google.com) → Get API Key.</span>
           </p>
           <div style={{display:"flex",gap:".65rem",alignItems:"flex-end",flexWrap:"wrap",marginBottom:"1rem"}}>
             <div style={{flex:1,minWidth:260}}>
               <label className="lbl">Anthropic API Key</label>
               <div style={{position:"relative"}}>
-                <input type={showKey?"text":"password"} className="inp" value={apiKey} onChange={e=>{setApiKey(e.target.value);setTestOk(null);}} placeholder="sk-ant-api03-…" spellCheck={false} autoComplete="off" style={{paddingRight:"3.2rem",fontFamily:"monospace",fontSize:".88rem"}}/>
+                <input type={showKey?"text":"password"} className="inp" value={apiKey} onChange={e=>{setApiKey(e.target.value);setTestOk(null);}} placeholder="AIzaSy…" spellCheck={false} autoComplete="off" style={{paddingRight:"3.2rem",fontFamily:"monospace",fontSize:".88rem"}}/>
                 <button onClick={()=>setShowKey(v=>!v)} style={{position:"absolute",right:".65rem",top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",fontSize:"1.1rem",lineHeight:1,padding:".15rem"}} title={showKey?"Hide":"Show"}>{showKey?"🙈":"👁"}</button>
               </div>
               {apiKey.length>0&&<div style={{marginTop:".38rem",fontSize:".72rem",fontFamily:"monospace",display:"flex",gap:".75rem"}}>
-                {apiKey.trim().startsWith("sk-ant-")?<span style={{color:T.ok}}>✓ Prefix looks correct</span>:<span style={{color:T.warn}}>⚠ Expected: sk-ant-…</span>}
+                {apiKey.trim().startsWith("AIza")?<span style={{color:T.ok}}>✓ Prefix looks correct</span>:<span style={{color:T.warn}}>⚠ Expected: AIza…</span>}
                 <span style={{color:T.t3}}>Length: {apiKey.trim().length}</span>
               </div>}
             </div>
@@ -1343,7 +1345,7 @@ function Settings({ cands, ivs, theme, setTheme, toast, T }) {
           </div>
           {testOk!==null&&<div style={{padding:".65rem 1rem",borderRadius:10,backdropFilter:"blur(12px)",marginBottom:"1rem",display:"flex",alignItems:"center",gap:".6rem",fontSize:".84rem",fontWeight:600,background:testOk?"rgba(0,210,160,.1)":"rgba(255,77,109,.1)",border:`1px solid ${testOk?"rgba(0,210,160,.3)":"rgba(255,77,109,.3)"}`,color:testOk?T.ok:T.err}}>{testOk?"✅ Connected — your key works!":"❌ Failed — check your key and try again."}</div>}
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(210px,1fr))",gap:".6rem"}}>
-            {[{n:1,t:"Get your key",d:"console.anthropic.com → API Keys → Create Key",c:"#818CF8"},{n:2,t:"Paste it above",d:"Copy the sk-ant-… string into the input field",c:T.lit},{n:3,t:"Save & Test",d:"Click Save, then Test to verify the connection",c:T.warn},{n:4,t:"AI unlocked",d:"All AI features now use your key with your rate limits",c:T.ok}].map(({n,t,d,c})=>(
+            {[{n:1,t:"Get your key",d:"aistudio.google.com → Get API Key → Create",c:"#818CF8"},{n:2,t:"Paste it above",d:"Copy the AIza… string into the input field",c:T.lit},{n:3,t:"Save & Test",d:"Click Save, then Test to verify the connection",c:T.warn},{n:4,t:"AI unlocked",d:"All AI features now use your Gemini key",c:T.ok}].map(({n,t,d,c})=>(
               <div key={n} style={{display:"flex",gap:".6rem",padding:".62rem .85rem",borderRadius:10,backdropFilter:"blur(10px)",background:"rgba(0,0,0,.18)",border:"1px solid rgba(255,255,255,.06)"}}>
                 <div style={{width:24,height:24,borderRadius:"50%",flexShrink:0,background:`linear-gradient(135deg,rgba(${T.g},.85),rgba(${T.g2},.7))`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Orbitron',sans-serif",fontSize:".68rem",fontWeight:700,color:"#fff",boxShadow:`0 0 10px rgba(${T.g},.38)`}}>{n}</div>
                 <div><div style={{fontWeight:700,color:T.t1,fontSize:".82rem",marginBottom:".18rem"}}>{t}</div><div style={{color:T.t3,fontSize:".75rem",lineHeight:1.5}}>{d}</div></div>
